@@ -1,4 +1,4 @@
-H5P.Column = (function () {
+H5P.Column = (function (EventDispatcher) {
 
   /**
    * Column Constructor
@@ -9,7 +9,11 @@ H5P.Column = (function () {
    * @param {Object} data User specific data to adapt behavior
    */
   function Column(params, id, data) {
+    /** @alias H5P.Column# */
     var self = this;
+
+    // We support events by extending this class
+    EventDispatcher.call(self);
 
     // Add defaults
     params = params || {};
@@ -17,11 +21,14 @@ H5P.Column = (function () {
       params.useSeparators = true;
     }
 
+    this.contentData = data;
+
     // Column wrapper element
     var wrapper;
 
     // H5P content in the column
     var instances = [];
+    var instanceContainers = [];
 
     // Number of tasks among instances
     var numTasks = 0;
@@ -63,7 +70,7 @@ H5P.Column = (function () {
      */
     var trackScoring = function (taskIndex) {
       return function (event) {
-        if (!event.isFromChild() || event.getScore() === null) {
+        if (event.getScore() === null) {
           return; // Skip, not relevant
         }
 
@@ -111,16 +118,13 @@ H5P.Column = (function () {
       }
 
       // Create content instance
-      var instance = H5P.newRunnable(content, id, H5P.jQuery(container), true, contentData);
-
-      // Remove any fullscreen buttons
-      disableFullscreen(instance);
+      var instance = H5P.newRunnable(content, id, undefined, true, contentData);
 
       // Bubble resize events
       bubbleUp(instance, 'resize', self);
 
       // Check if instance is a task
-      if (isTask(instance)) {
+      if (Column.isTask(instance)) {
         // Tasks requires completion
 
         instance.on('xAPI', trackScoring(numTasks));
@@ -137,6 +141,11 @@ H5P.Column = (function () {
 
       // Keep track of all instances
       instances.push(instance);
+      instanceContainers.push({
+        hasAttached: false,
+        container: container,
+        instanceIndex: instances.length - 1,
+      });
 
       // Add to DOM wrapper
       wrapper.appendChild(container);
@@ -281,6 +290,17 @@ H5P.Column = (function () {
         createHTML();
       }
 
+      // Attach instances that have not been attached
+      instanceContainers.filter(function (container) { return !container.hasAttached })
+        .forEach(function (container) {
+          instances[container.instanceIndex]
+            .attach(H5P.jQuery(container.container));
+
+          // Remove any fullscreen buttons
+          disableFullscreen(instances[container.instanceIndex]);
+        });
+
+
       // Add to DOM
       $container.addClass('h5p-column').html('').append(wrapper);
     };
@@ -319,7 +339,7 @@ H5P.Column = (function () {
      *
      * @see contract at {@link https://h5p.org/documentation/developers/contracts#guides-header-6}
      */
-    self.getXAPIData = function(){
+    self.getXAPIData = function () {
       var xAPIEvent = self.createXAPIEventTemplate('answered');
       addQuestionToXAPI(xAPIEvent);
       xAPIEvent.setScoredResult(self.getScore(),
@@ -359,9 +379,71 @@ H5P.Column = (function () {
     };
 
     /**
+     * Get answer given
+     * Contract.
+     *
+     * @return {boolean} True, if all answers have been given.
+     */
+    self.getAnswerGiven = function () {
+      return instances.reduce(function (prev, instance) {
+        return prev && (instance.getAnswerGiven ? instance.getAnswerGiven() : prev);
+      }, true);
+    };
+
+    /**
+     * Show solutions.
+     * Contract.
+     */
+    self.showSolutions = function () {
+      instances.forEach(function (instance) {
+        if (instance.toggleReadSpeaker) {
+          instance.toggleReadSpeaker(true);
+        }
+        if (instance.showSolutions) {
+          instance.showSolutions();
+        }
+        if (instance.toggleReadSpeaker) {
+          instance.toggleReadSpeaker(false);
+        }
+      });
+    };
+
+    /**
+     * Reset task.
+     * Contract.
+     */
+    self.resetTask = function () {
+      instances.forEach(function (instance) {
+        if (instance.resetTask) {
+          instance.resetTask();
+        }
+      });
+    };
+
+    /**
+     * Get instances for all children
+     * TODO: This is not a good interface, we should provide handling needed
+     * handling of the tasks instead of repeating them for each parent...
+     *
+     * @return {Object[]} array of instances
+     */
+    self.getInstances = function () {
+      return instances;
+    };
+
+    /**
+     * Get title, e.g. for xAPI when Column is subcontent.
+     *
+     * @return {string} Title.
+     */
+    self.getTitle = function () {
+      return H5P.createTitle((self.contentData && self.contentData.metadata && self.contentData.metadata.title) ? self.contentData.metadata.title : 'Column');
+    };
+
+    /**
      * Add the question itself to the definition part of an xAPIEvent
      */
-    var addQuestionToXAPI = function(xAPIEvent) {
+    var addQuestionToXAPI = function (xAPIEvent) {
       var definition = xAPIEvent.getVerifiedStatementValue(['object', 'definition']);
       H5P.jQuery.extend(definition, getxAPIDefinition());
     };
@@ -388,19 +470,29 @@ H5P.Column = (function () {
      * @param {Array} of H5P instances
      * @returns {Array} of xAPI data objects used to build a report
      */
-    var getXAPIDataFromChildren = function(children) {
-      return children.map(function(child) {
-        if (typeof child.getXAPIData == 'function'){
+    var getXAPIDataFromChildren = function (children) {
+      return children.map(function (child) {
+        if (typeof child.getXAPIData == 'function') {
           return child.getXAPIData();
         }
+      }).filter(function (data) {
+        return !!data;
       });
     };
 
     // Resize children to fit inside parent
     bubbleDown(self, 'resize', instances);
 
+    if (wrapper === undefined) {
+      // Create wrapper and content
+      createHTML();
+    }
+
     self.setActivityStarted();
   }
+
+  Column.prototype = Object.create(EventDispatcher.prototype);
+  Column.prototype.constructor = Column;
 
   /**
    * Makes it easy to bubble events from parent to children
@@ -459,7 +551,8 @@ H5P.Column = (function () {
     'H5P.MemoryGame',
     'H5P.QuestionSet',
     'H5P.InteractiveVideo',
-    'H5P.CoursePresentation'
+    'H5P.CoursePresentation',
+    'H5P.DocumentationTool'
   ];
 
   /**
@@ -468,7 +561,11 @@ H5P.Column = (function () {
    * @param {Object} instance
    * @return {boolean}
    */
-  function isTask(instance) {
+  Column.isTask = function (instance) {
+    if (instance.isTask !== undefined) {
+      return instance.isTask; // Content will determine self if it's a task
+    }
+
     // Go through the valid task names
     for (var i = 0; i < isTasks.length; i++) {
       // Check against library info. (instanceof is broken in H5P.newRunnable)
@@ -542,4 +639,4 @@ H5P.Column = (function () {
   }
 
   return Column;
-})();
+})(H5P.EventDispatcher);

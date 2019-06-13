@@ -1,25 +1,24 @@
 {
   "semantics":[
     {
-      "label":"List of Column Content",
-      "entity":"content",
+      "label":"Osiot",
+      "entity":"osio",
       "field":{
         "fields":[
           {
-            "label":"Content"
+            "label":"Osion sisältö"
           },
           {
-            "label":"Separate content with a horizontal ruler",
-            "default":"auto",
+            "label":"Erota osio vaakaviivalla",
             "options":[
               {
-                "label":"Automatic (default)"
+                "label":"Auto (oletus)"
               },
               {
-                "label":"Never use ruler above"
+                "label":"Älä koskaan käytä erotinta"
               },
               {
-                "label":"Always use ruler above"
+                "label":"Käytä erotinta aina"
               }
             ]
           }
